@@ -1,0 +1,82 @@
+#!/bin/bash
+set -e
+
+# ==============================
+# KONFIGURASI
+# ==============================
+NAME="joko-bot"
+
+DOCKERHUB_USER="jookooo"
+REPO_NAME="joko"
+TAG="latest"
+IMAGE_FULL="${DOCKERHUB_USER}/${REPO_NAME}:${TAG}"
+
+TOKEN="${TG_TOKEN:-8333206393:AAG8Z76SSbgAEAC1a3oPT8XhAF9t_rDOq3A}"
+CHAT_ID="${TG_CHAT_ID:--1003532458425}"
+
+# ✅ data 1 folder dengan joko-app (di host)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+DATA_DIR="$SCRIPT_DIR/joko-data"
+
+DO_PUSH="${DO_PUSH:-0}"
+
+echo "======================================="
+echo "🛠️  BUILD IMAGE: $IMAGE_FULL"
+echo "======================================="
+docker build -t "$IMAGE_FULL" .
+
+if [ "$DO_PUSH" = "1" ]; then
+  echo "======================================="
+  echo "🚀 PUSH KE DOCKER HUB: $IMAGE_FULL"
+  echo "======================================="
+  docker push "$IMAGE_FULL"
+else
+  echo "======================================="
+  echo "ℹ️  SKIP PUSH (DO_PUSH=0)"
+  echo "   Kalau mau push: DO_PUSH=1 bash run"
+  echo "======================================="
+fi
+
+echo "======================================="
+echo "📁 SETUP DATA FOLDER (PERMANENT)"
+echo "======================================="
+mkdir -p "$DATA_DIR/chrome_profiles" "$DATA_DIR/screenshots" "$DATA_DIR/snapshots"
+
+touch "$DATA_DIR/email.txt" \
+      "$DATA_DIR/emailshare.txt" \
+      "$DATA_DIR/mapping_profil.txt" \
+      "$DATA_DIR/loop_status.json" \
+      "$DATA_DIR/tunnel.log"
+
+if [ ! -s "$DATA_DIR/loop_status.json" ]; then
+  echo "{}" > "$DATA_DIR/loop_status.json"
+fi
+
+echo "======================================="
+echo "🛑 RESET CONTAINER LAMA"
+echo "======================================="
+docker stop "$NAME" 2>/dev/null || true
+docker rm "$NAME" 2>/dev/null || true
+
+echo "======================================="
+echo "🏃 RUN CONTAINER BARU"
+echo "======================================="
+
+docker run -d \
+  --name "$NAME" \
+  --restart unless-stopped \
+  --shm-size=2g \
+  --ulimit nofile=65535:65535 \
+  -p 8080:8080 \
+  -e TG_TOKEN="$TOKEN" \
+  -e TG_CHAT_ID="$CHAT_ID" \
+  -e BASE_DIR="/joko-app/data" \
+  -v "$DATA_DIR:/joko-app/data" \
+  "$IMAGE_FULL"
+
+echo "======================================="
+echo "✅ SELESAI"
+echo "======================================="
+echo "📁 Data Permanent (HOST): $DATA_DIR"
+echo "📦 Data di Container: /joko-app/data"
+echo "🌐 Log: docker logs -f $NAME"

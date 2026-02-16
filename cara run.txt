@@ -1,0 +1,17 @@
+docker compose down
+
+chmod +x run
+./run
+
+docker stop joko-bot
+
+docker logs -f joko-bot
+
+docker build -t joko-bot .
+docker run -d \
+  --name joko-bot \
+  --restart unless-stopped \
+  --shm-size=2g \
+  -p 8080:8080 \
+  -v $HOME/joko-data:/app \
+  joko-bot
