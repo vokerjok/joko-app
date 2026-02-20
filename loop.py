@@ -28,10 +28,10 @@ STATUS_FILE = os.path.join(BASE_PATH, "loop_status.json")
 LOOP_LOG_FILE = os.path.join(BASE_PATH, "loop_log.txt")
 
 # Delay & timing
-PRE_OPEN_DELAY = int(os.environ.get("PRE_OPEN_DELAY", "2"))          # delay sebelum get(link)
-START_PROFILE_DELAY = int(os.environ.get("START_PROFILE_DELAY", "2"))
-SLEEP_SEBELUM_AKSI = int(os.environ.get("SLEEP_SEBELUM_AKSI", "2"))
-SLEEP_SESUDAH_AKSI = int(os.environ.get("SLEEP_SESUDAH_AKSI", "2"))
+PRE_OPEN_DELAY = int(os.environ.get("PRE_OPEN_DELAY", "5"))          # delay sebelum get(link)
+START_PROFILE_DELAY = int(os.environ.get("START_PROFILE_DELAY", "25"))
+SLEEP_SEBELUM_AKSI = int(os.environ.get("SLEEP_SEBELUM_AKSI", "5"))
+SLEEP_SESUDAH_AKSI = int(os.environ.get("SLEEP_SESUDAH_AKSI", "5"))
 SLEEP_JIKA_ERROR = int(os.environ.get("SLEEP_JIKA_ERROR", "3"))
 
 # ✅ NEW: delay setelah selesai 1 putaran link milik profile, lalu ulang dari awal
