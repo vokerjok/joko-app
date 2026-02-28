@@ -798,6 +798,141 @@ def cleanup_root_png():
         "errors": errors[:20],
     })
 
+
+# =========================
+# CLEANUP (NEW): delete logs / json / .lock / .pid (SAFE)
+# =========================
+def _iter_files_safe():
+    """
+    Iterate semua file di BASE_DIR tapi:
+    - SKIP folder chrome_profiles (biar profile tidak rusak)
+    - SKIP venv/node_modules/.git/__pycache__ (biar aman & cepat)
+    """
+    skip_abs = set()
+    try:
+        skip_abs.add(os.path.abspath(CHROME_PROFILES_DIR))
+    except Exception:
+        pass
+
+    SKIP_DIR_NAMES = {"venv", ".venv", "node_modules", ".git", "__pycache__", ".pytest_cache"}
+
+    for root, dirs, files in os.walk(BASE_DIR):
+        root_abs = os.path.abspath(root)
+
+        # prune dirs
+        pruned = []
+        for d in list(dirs):
+            d_abs = os.path.abspath(os.path.join(root, d))
+            if d in SKIP_DIR_NAMES:
+                pruned.append(d)
+                continue
+            # skip chrome_profiles subtree
+            if any(d_abs == s or d_abs.startswith(s + os.sep) for s in skip_abs):
+                pruned.append(d)
+        for d in pruned:
+            dirs.remove(d)
+
+        # skip if root inside chrome_profiles
+        if any(root_abs == s or root_abs.startswith(s + os.sep) for s in skip_abs):
+            continue
+
+        for fn in files:
+            yield os.path.join(root, fn)
+
+def cleanup_files(types=None):
+    """
+    types: list dari {"log","json","lock"}
+    - log: *.log, *_log.txt, bot_log.txt, tunnel.log, dll
+    - json: *.json
+    - lock: *.lock, *.pid, file yg mengandung '.lock__'
+    """
+    if not types:
+        types = ["log", "json", "lock"]
+    types = [str(x).lower().strip() for x in (types or []) if str(x).strip()]
+
+    deleted = []
+    skipped = []
+    errors = []
+
+    def want_log(p):
+        b = os.path.basename(p).lower()
+        return b.endswith(".log") or b.endswith("_log.txt") or b in {
+            "bot_log.txt", "tunnel.log", "login_log.txt", "loop_log.txt", "buat_link_log.txt"
+        }
+
+    def want_json(p):
+        return os.path.basename(p).lower().endswith(".json")
+
+    def want_lock(p):
+        b = os.path.basename(p).lower()
+        return b.endswith(".lock") or b.endswith(".pid") or ".lock__" in b
+
+    for p in _iter_files_safe():
+        try:
+            if not os.path.isfile(p):
+                continue
+            target = False
+            if "log" in types and want_log(p):
+                target = True
+            if "json" in types and want_json(p):
+                target = True
+            if "lock" in types and want_lock(p):
+                target = True
+
+            if not target:
+                continue
+
+            try:
+                os.remove(p)
+                deleted.append(os.path.relpath(p, BASE_DIR))
+            except Exception as e:
+                errors.append(f"{os.path.relpath(p, BASE_DIR)}: {type(e).__name__}: {e}")
+        except Exception as e:
+            errors.append(f"{p}: {type(e).__name__}: {e}")
+
+    # recreate minimal required files so panel tetap jalan
+    try:
+        ensure_files()
+    except Exception:
+        pass
+
+    append_line(LOG_FILE, f"[{_now()}] CLEANUP types={types} deleted={len(deleted)} err={len(errors)}")
+    return deleted, skipped, errors
+
+@app.route("/cleanup/all", methods=["POST"])
+def cleanup_all():
+    """
+    Hapus file log + json + .lock/.pid dalam BASE_DIR (SAFE).
+    Tidak mengubah fungsi lain, hanya bersih-bersih file.
+    """
+    ensure_files()
+    deleted, skipped, errors = cleanup_files(["log", "json", "lock"])
+    return jsonify({
+        "msg": "✅ cleanup done (log+json+lock)",
+        "deleted_count": len(deleted),
+        "deleted_sample": deleted[:50],
+        "errors": errors[:30],
+    })
+
+@app.route("/cleanup", methods=["POST"])
+def cleanup_custom():
+    """
+    Body JSON:
+      { "types": ["log","json","lock"] }
+    Default: all.
+    """
+    ensure_files()
+    payload = request.get_json(silent=True) or {}
+    types = payload.get("types") or ["log", "json", "lock"]
+    deleted, skipped, errors = cleanup_files(types)
+    return jsonify({
+        "msg": f"✅ cleanup done ({','.join(types)})",
+        "types": types,
+        "deleted_count": len(deleted),
+        "deleted_sample": deleted[:50],
+        "errors": errors[:30],
+    })
+
 # ✅ NEW: Open Live Gallery (thumbnail preview, auto refresh)
 LIVE_GALLERY_HTML = r"""
 <!doctype html>
@@ -861,6 +996,40 @@ load();
 </body>
 </html>
 """
+
+@app.route("/cleanup/chrome_profiles", methods=["POST"])
+def cleanup_chrome_profiles():
+    """
+    DANGEROUS (destructive):
+    Hapus total folder chrome_profiles (semua profile/clones), lalu dibuat ulang foldernya.
+
+    Wajib konfirmasi:
+      - query ?confirm=DELETE
+      - atau body JSON: {"confirm":"DELETE"}
+    """
+    ensure_files()
+    payload = request.get_json(silent=True) or {}
+    confirm_key = (payload.get("confirm") or request.args.get("confirm") or "").strip()
+    if confirm_key != "DELETE":
+        return jsonify({
+            "error": "confirm required",
+            "hint": "POST /cleanup/chrome_profiles with JSON {"confirm":"DELETE"} (atau ?confirm=DELETE)"
+        }), 400
+
+    try:
+        if os.path.isdir(CHROME_PROFILES_DIR):
+            shutil.rmtree(CHROME_PROFILES_DIR, ignore_errors=False)
+        os.makedirs(CHROME_PROFILES_DIR, exist_ok=True)
+    except Exception as e:
+        return jsonify({"error": f"failed: {type(e).__name__}: {e}"}), 500
+
+    append_line(LOG_FILE, f"[{_now()}] CLEANUP chrome_profiles cleared")
+    return jsonify({
+        "msg": "✅ chrome_profiles deleted & recreated",
+        "path": CHROME_PROFILES_DIR
+    })
+
+
 
 @app.route("/live", methods=["GET"])
 def live_gallery():
@@ -1370,6 +1539,8 @@ PANEL_HTML = r"""
           <button id="btnScreensRefresh" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700">Refresh</button>
           <button id="btnScreensClear" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700">Clear All</button>
           <button id="btnCleanupRootPng" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700">Cleanup Root PNG</button>
+          <button id="btnCleanupAllFiles" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700">Cleanup Log/Json/Lock</button>
+          <button id="btnCleanupChromeProfiles" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700">Delete Chrome Profiles</button>
         </div>
         <div id="screensBox" class="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2"></div>
       </div>
@@ -1698,6 +1869,23 @@ $("btnScreensClear").onclick = async ()=>{
   await refreshScreens();
 };
 $("btnCleanupRootPng").onclick = async ()=>{ await api("/screens/cleanup_root_png","POST"); alert("cleanup done"); };
+$("btnCleanupAllFiles").onclick = async ()=>{
+  if(!confirm("Hapus LOG + JSON + .LOCK/.PID ?")) return;
+  const r = await api("/cleanup/all","POST",{});
+  alert(`deleted: ${r.deleted_count || 0}`);
+  await refreshFiles();
+};
+
+$("btnCleanupChromeProfiles").onclick = async ()=>{
+  // double-confirm because this is destructive
+  if(!confirm("Ini akan MENGHAPUS SEMUA folder chrome_profiles (semua clone/profiles). Lanjut?")) return;
+  const key = prompt("Ketik DELETE untuk konfirmasi:");
+  if((key||"").trim() !== "DELETE") { alert("batal"); return; }
+  const r = await api("/cleanup/chrome_profiles","POST",{confirm:"DELETE"});
+  alert(r.msg || r.error || "done");
+  await refreshProfiles();
+  await refreshFiles();
+};
 
 $("btnFilesRefresh").onclick = refreshFiles;
 $("btnFileRead").onclick = fileRead;
