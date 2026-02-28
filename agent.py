@@ -1013,7 +1013,7 @@ def cleanup_chrome_profiles():
     if confirm_key != "DELETE":
         return jsonify({
             "error": "confirm required",
-            "hint": "POST /cleanup/chrome_profiles with JSON {"confirm":"DELETE"} (atau ?confirm=DELETE)"
+            "hint": "POST /cleanup/chrome_profiles with JSON {\"confirm\":\"DELETE\"} (atau ?confirm=DELETE)"
         }), 400
 
     try:
