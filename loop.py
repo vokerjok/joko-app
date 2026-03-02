@@ -279,9 +279,9 @@ def get_options(user_data_dir: str, profile_dir: str):
             "credentials_enable_service": False,
             "profile.password_manager_enabled": False,
             "profile.exit_type": "Normal",
-            "profile.exited_cleanly": True
+            "profile.exited_cleanly": True,
             "profile.managed_default_content_settings.images": 2,
-            "profile.default_content_setting_values.images": 2,
+            "profile.default_content_setting_values.images": 2
         }
     )
 
